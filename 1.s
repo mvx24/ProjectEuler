@@ -15,7 +15,7 @@ _main:
 loop:
 	//if i % 5 == 0
 	movl	12(%esp), %eax
-	cltd
+	movl	$0, %edx
 	movl	$5, %ecx
 	divl	%ecx
 	cmpl	$0, %edx
