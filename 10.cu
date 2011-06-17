@@ -1,18 +1,26 @@
-// nvcc -arch=sm_20 10.cu
+// nvcc -arch=sm_12 10.cu
 // Find the sum of all primes below 2 million
 
 #include <stdio.h>
 #include <cuda.h>
+#include <sys/time.h>
+#include <sys/types.h>
+
+static struct timeval _stopWatchStartTime, _stopWatchStopTime;
+
+#define InitStopWatch() do{ _stopWatchStartTime.tv_sec = _stopWatchStopTime.tv_sec = 0; _stopWatchStartTime.tv_usec = _stopWatchStopTime.tv_usec = 0; }while(0)
+#define StartStopWatch() do{ gettimeofday(&_stopWatchStartTime, NULL); }while(0)
+#define StopStopWatch() do{ gettimeofday(&_stopWatchStopTime, NULL); }while(0)
+#define GetStopWatchSeconds() ((double)(_stopWatchStopTime.tv_sec - _stopWatchStartTime.tv_sec) + ((double)(_stopWatchStopTime.tv_usec - _stopWatchStartTime.tv_usec)/1000.0))
 
 #define THREADS_PER_BLOCK	512
 #define START_NUMBER		1414
 #define TOTAL_THREADS		((2000000-START_NUMBER)/2)
 
-__shared__ int blockPrimes[THREADS_PER_BLOCK];
-
 // Kernel that executes on the CUDA device
 __global__ void sum_primes(int *firstPrimes, size_t n, unsigned long long *blockSums)
 {
+	__shared__ int blockPrimes[THREADS_PER_BLOCK];
 	int i;
 	int idx;
 	int num;
@@ -89,7 +97,39 @@ int main(int argc, char *argv[])
 	blockSize = THREADS_PER_BLOCK;
 	nblocks = TOTAL_THREADS/blockSize + (TOTAL_THREADS % blockSize?1:0);
 	cudaMalloc((void **) &primeSumsDevice, nblocks * sizeof(unsigned long long));
-	sum_primes <<< nblocks, blockSize >>> (primesDevice, index, primeSumsDevice);
+	
+	// C++ invocation
+	//sum_primes <<< nblocks, blockSize >>> (primesDevice, index, primeSumsDevice);
+	// C invocation
+	do
+	{
+		dim3 gridDim;
+		dim3 blockDim;
+		cudaError_t error;
+		gridDim.x = nblocks;
+		blockDim.x = blockSize;
+		gridDim.y = gridDim.z = blockDim.y = blockDim.z = 1;
+		error = cudaConfigureCall(gridDim, blockDim, 0, NULL);
+		if(error != cudaSuccess)
+		{
+			printf("%s\n", cudaGetErrorString(error));
+			break;
+		}
+		error = cudaSetupArgument(&primesDevice, sizeof(primesDevice), 0);
+		error = cudaSetupArgument(&index, sizeof(index), sizeof(primesDevice));
+		error = cudaSetupArgument(&primeSumsDevice, sizeof(primeSumsDevice), sizeof(primesDevice) + sizeof(index));
+		printf("Start kernel\n");
+		InitStopWatch();
+		StartStopWatch();
+		error = cudaLaunch(sum_primes);
+		if(error != cudaSuccess)
+		{
+			printf("cudaLaunch: %s\n", cudaGetErrorString(error));
+			break;
+		}
+		StopStopWatch();
+		printf("Kernel completed in %.04f seconds.\n", GetStopWatchSeconds());
+	}while(0);
 	
 	// Retrieve result from device and store it in host array
 	primeSums = (unsigned long long *)malloc(nblocks * sizeof(unsigned long long));
