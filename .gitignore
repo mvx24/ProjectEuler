@@ -1,5 +1,6 @@
 .DS_Store
 a.out
+*.dSYM
 *.pyc
 *.a
 *.tar.gz
